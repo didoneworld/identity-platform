@@ -6,8 +6,10 @@ import com.sun.net.httpserver.HttpServer;
 import world.didone.identity.didcore.DIDCore;
 import world.didone.identity.didcore.DIDCoreLifecycleState;
 import world.didone.identity.lifecycle.AgentLifecycleState;
+import world.didone.identity.oidc.DevTokenSigner;
 import world.didone.identity.oidc.JsonWebKey;
 import world.didone.identity.oidc.OidcProviderMetadata;
+import world.didone.identity.oidc.OidcTokenService;
 import world.didone.identity.oidc.TokenResponse;
 import world.didone.identity.oidc.UserInfoClaims;
 import world.didone.identity.recovery.RecoveryState;
@@ -15,14 +17,18 @@ import world.didone.identity.recovery.RecoveryState;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public final class DidOneIdentityApplication {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String ISSUER = System.getenv().getOrDefault("DIDONE_ISSUER", "http://localhost:8080");
+    private static final OidcTokenService TOKEN_SERVICE = new OidcTokenService(ISSUER, new DevTokenSigner("didone-dev-key-1"));
 
     public static void main(String[] args) throws IOException {
         int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "8080"));
@@ -41,7 +47,7 @@ public final class DidOneIdentityApplication {
                 "error", "not_implemented",
                 "message", "Authorization endpoint is reserved. Human login and consent ceremony will be implemented next."
         )));
-        server.createContext("/oauth2/v1/token", exchange -> respond(exchange, 501, tokenPlaceholder()));
+        server.createContext("/oauth2/v1/token", DidOneIdentityApplication::handleToken);
         server.createContext("/connect/register", exchange -> respond(exchange, 501, Map.of(
                 "error", "not_implemented",
                 "message", "Dynamic client registration model exists. Persistence and policy gates are next."
@@ -72,6 +78,46 @@ public final class DidOneIdentityApplication {
         System.out.printf("DID One Identity Platform running on port %d%n", port);
     }
 
+    private static void handleToken(HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            respond(exchange, 405, Map.of("error", "method_not_allowed", "message", "Use POST for token exchange."));
+            return;
+        }
+
+        Map<String, String> form = parseForm(exchange);
+        String grantType = form.getOrDefault("grant_type", "client_credentials");
+        String clientId = form.getOrDefault("client_id", "didone-dev-client");
+        String scope = form.getOrDefault("scope", "openid profile email did");
+        String subjectDid = form.getOrDefault("did", "did:didone:identity:root");
+
+        if (!List.of("client_credentials", "authorization_code", "refresh_token").contains(grantType)) {
+            respond(exchange, 400, Map.of("error", "unsupported_grant_type", "grant_type", grantType));
+            return;
+        }
+
+        TokenResponse tokenResponse = TOKEN_SERVICE.issueDevelopmentTokens(clientId, subjectDid, scope);
+        respond(exchange, 200, tokenResponse);
+    }
+
+    private static Map<String, String> parseForm(HttpExchange exchange) throws IOException {
+        String raw = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        if (raw.isBlank()) {
+            return Map.of();
+        }
+        return Arrays.stream(raw.split("&"))
+                .map(part -> part.split("=", 2))
+                .filter(pair -> pair.length == 2)
+                .collect(Collectors.toMap(
+                        pair -> decode(pair[0]),
+                        pair -> decode(pair[1]),
+                        (left, right) -> right
+                ));
+    }
+
+    private static String decode(String value) {
+        return URLDecoder.decode(value, StandardCharsets.UTF_8);
+    }
+
     private static OidcProviderMetadata providerMetadata() {
         return new OidcProviderMetadata(
                 ISSUER,
@@ -84,7 +130,7 @@ public final class DidOneIdentityApplication {
                 List.of("code"),
                 List.of("authorization_code", "refresh_token", "client_credentials"),
                 List.of("public", "pairwise", "did"),
-                List.of("RS256"),
+                List.of("none", "RS256"),
                 List.of("client_secret_basic", "client_secret_post", "private_key_jwt", "none"),
                 List.of("sub", "name", "preferred_username", "email", "email_verified", "profile", "picture", "locale", "zoneinfo", "did", "lifecycle_state", "trust_score")
         );
@@ -93,11 +139,11 @@ public final class DidOneIdentityApplication {
     private static JsonWebKey sampleSigningKey() {
         return new JsonWebKey(
                 "didone-dev-key-1",
-                "RSA",
+                "oct",
                 "sig",
-                "RS256",
-                "pending-modulus",
-                "AQAB",
+                "none",
+                null,
+                null,
                 null,
                 null,
                 null
@@ -118,17 +164,6 @@ public final class DidOneIdentityApplication {
                 "UTC",
                 DIDCoreLifecycleState.ACTIVE.code(),
                 1000
-        );
-    }
-
-    private static TokenResponse tokenPlaceholder() {
-        return new TokenResponse(
-                null,
-                "Bearer",
-                0,
-                null,
-                null,
-                "openid profile email did"
         );
     }
 
