@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: didone-identity
+  labels:
+    app.kubernetes.io/name: didone-identity-platform
+    app.kubernetes.io/part-of: didone-world
