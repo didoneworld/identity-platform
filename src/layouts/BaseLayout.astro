@@ -1,0 +1,34 @@
+---
+import '../styles/global.css';
+const { title = 'DID One Identity Platform', description = 'Identity First World powered by DIDCore.' } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <nav class="nav">
+        <a class="brand" href="/identity-platform/">DID One</a>
+        <div class="nav-links">
+          <a href="/identity-platform/didcore/">DIDCore</a>
+          <a href="/identity-platform/lifecycle/">Lifecycle</a>
+          <a href="/identity-platform/recovery/">Recovery</a>
+          <a href="/identity-platform/worlds/">Worlds</a>
+          <a href="https://github.com/didoneworld/identity-platform">GitHub</a>
+        </div>
+      </nav>
+      <slot />
+      <footer class="footer">
+        <div class="container">DID One Identity Platform — Identity first. Proof always. Open at the end.</div>
+      </footer>
+    </div>
+  </body>
+</html>
