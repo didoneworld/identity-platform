@@ -1,0 +1,30 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+<BaseLayout title="DIDCore — DID One" description="The identity kernel for DID One Identity Platform.">
+  <main class="section">
+    <div class="container">
+      <div class="badge">DIDCore</div>
+      <h1>DIDCore</h1>
+      <p class="lede">DIDCore is the identity kernel: the place where identity becomes stable enough for agents, commerce, governance, and worlds to exist.</p>
+      <div class="panel">
+        <pre class="code-card">DIDCore =
+  DID
+  + DID Document
+  + Controller
+  + Verification Method
+  + Wallet Binding
+  + Credential Anchor
+  + Lifecycle State
+  + Recovery Policy
+  + Compatibility Profile
+  + Immutable Audit</pre>
+      </div>
+      <div class="grid" style="margin-top: 1rem;">
+        <div class="card"><h3>DID</h3><p>The canonical identifier for humans, agents, tools, skills, credentials, APIs, devices, organizations, and worlds.</p></div>
+        <div class="card"><h3>Controller</h3><p>The authority that can control, recover, rotate, constrain, or retire the identity.</p></div>
+        <div class="card"><h3>Verification</h3><p>Verification methods, proofs, service endpoints, credential anchors, and status checks.</p></div>
+      </div>
+    </div>
+  </main>
+</BaseLayout>
