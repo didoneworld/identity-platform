@@ -11,6 +11,9 @@ import world.didone.identity.didcore.DIDCoreLifecycleState;
 import world.didone.identity.keys.InMemorySigningKeyStore;
 import world.didone.identity.keys.SigningKeyStore;
 import world.didone.identity.lifecycle.AgentLifecycleState;
+import world.didone.identity.oidc.DynamicClientRegistrationInput;
+import world.didone.identity.oidc.DynamicClientRegistrationResponse;
+import world.didone.identity.oidc.DynamicClientRegistrationService;
 import world.didone.identity.oidc.JsonWebKey;
 import world.didone.identity.oidc.OidcProviderMetadata;
 import world.didone.identity.oidc.OidcTokenService;
@@ -18,6 +21,8 @@ import world.didone.identity.oidc.RsaTokenSigner;
 import world.didone.identity.oidc.TokenResponse;
 import world.didone.identity.oidc.UserInfoClaims;
 import world.didone.identity.recovery.RecoveryState;
+import world.didone.identity.repository.InMemoryOidcClientRepository;
+import world.didone.identity.repository.OidcClientRepository;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -37,6 +42,8 @@ public final class DidOneIdentityApplication {
     private static final String ROOT_DID = "did:didone:identity:root";
     private static final SigningKeyStore KEY_STORE = new InMemorySigningKeyStore(ROOT_DID, "didone-rs256-dev-key-1");
     private static final AuditSink AUDIT = new InMemoryAuditSink();
+    private static final OidcClientRepository CLIENTS = new InMemoryOidcClientRepository();
+    private static final DynamicClientRegistrationService CLIENT_REGISTRATION = new DynamicClientRegistrationService(CLIENTS);
     private static final OidcTokenService TOKEN_SERVICE = new OidcTokenService(ISSUER, new RsaTokenSigner(KEY_STORE.activeSigningKey()));
 
     public static void main(String[] args) throws IOException {
@@ -58,15 +65,13 @@ public final class DidOneIdentityApplication {
         )));
         server.createContext("/oauth2/v1/userinfo", exchange -> respond(exchange, 200, sampleUserInfo()));
         server.createContext("/oauth2/v1/audit", exchange -> respond(exchange, 200, Map.of("events", AUDIT.recentEvents())));
+        server.createContext("/oauth2/v1/clients", exchange -> respond(exchange, 200, Map.of("clients", CLIENTS.findAll())));
         server.createContext("/oauth2/v1/authorize", exchange -> respond(exchange, 501, Map.of(
                 "error", "not_implemented",
                 "message", "Authorization endpoint is reserved. Human login and consent ceremony will be implemented next."
         )));
         server.createContext("/oauth2/v1/token", DidOneIdentityApplication::handleToken);
-        server.createContext("/connect/register", exchange -> respond(exchange, 501, Map.of(
-                "error", "not_implemented",
-                "message", "Dynamic client registration model exists. Persistence and policy gates are next."
-        )));
+        server.createContext("/connect/register", DidOneIdentityApplication::handleClientRegistration);
 
         server.createContext("/v1/didcore", exchange -> respond(exchange, 200, sampleDidCore()));
         server.createContext("/v1/lifecycle/states", exchange -> respond(exchange, 200, Map.of(
@@ -83,6 +88,7 @@ public final class DidOneIdentityApplication {
                         "/.well-known/jwks.json",
                         "/oauth2/v1/keys",
                         "/oauth2/v1/audit",
+                        "/oauth2/v1/clients",
                         "/oauth2/v1/userinfo",
                         "/oauth2/v1/authorize",
                         "/oauth2/v1/token",
@@ -103,6 +109,27 @@ public final class DidOneIdentityApplication {
                 Map.of("issuer", ISSUER, "active_key", KEY_STORE.activeSigningKey().keyId())
         ));
         System.out.printf("DID One Identity Platform running on port %d%n", port);
+    }
+
+    private static void handleClientRegistration(HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            respond(exchange, 405, Map.of("error", "method_not_allowed", "message", "Use POST for dynamic client registration."));
+            return;
+        }
+
+        DynamicClientRegistrationInput input = JSON.readValue(exchange.getRequestBody(), DynamicClientRegistrationInput.class);
+        DynamicClientRegistrationResponse response = CLIENT_REGISTRATION.register(input);
+        AUDIT.append(new AuditEvent(
+                UUID.randomUUID().toString(),
+                "OIDC_CLIENT_REGISTERED",
+                ROOT_DID,
+                response.clientId(),
+                "/connect/register",
+                "success",
+                Instant.now(),
+                Map.of("client_id", response.clientId(), "client_name", response.clientName())
+        ));
+        respond(exchange, 201, response);
     }
 
     private static void handleToken(HttpExchange exchange) throws IOException {
