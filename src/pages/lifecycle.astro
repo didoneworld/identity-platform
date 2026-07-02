@@ -1,0 +1,36 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+<BaseLayout title="Lifecycle Governance — DID One" description="Lifecycle governance for every identity and every agent.">
+  <main class="section">
+    <div class="container">
+      <div class="badge">Lifecycle Governance</div>
+      <h1>Lifecycle for every agent</h1>
+      <p class="lede">No agent exists outside lifecycle. No agent acts outside governance. No agent keeps autonomy after trust breaks.</p>
+      <div class="panel">
+        <pre class="code-card">0  unborn
+1  requested
+2  registered
+3  verified
+4  provisioned
+5  active
+6  monitored
+7  constrained
+8  probation
+9  suspended
+10 revoked
+11 graceful_exit_requested
+12 handoff_in_progress
+13 exited
+14 retired
+15 archived
+16 backward_compatible</pre>
+      </div>
+      <div class="grid" style="margin-top: 1rem;">
+        <div class="card"><h3>Capability</h3><p>Capability can grow through learning, evidence, and credentials.</p></div>
+        <div class="card"><h3>Autonomy</h3><p>Autonomy is granted by governance, never assumed from capability.</p></div>
+        <div class="card"><h3>Audit</h3><p>Every lifecycle transition writes immutable evidence and remains replayable.</p></div>
+      </div>
+    </div>
+  </main>
+</BaseLayout>
