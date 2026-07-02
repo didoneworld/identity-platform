@@ -14,6 +14,7 @@
     <maven.compiler.source>21</maven.compiler.source>
     <maven.compiler.target>21</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <jib.image>ghcr.io/didoneworld/identity-platform:latest</jib.image>
   </properties>
 
   <dependencies>
@@ -51,6 +52,29 @@
             </configuration>
           </execution>
         </executions>
+      </plugin>
+      <plugin>
+        <groupId>com.google.cloud.tools</groupId>
+        <artifactId>jib-maven-plugin</artifactId>
+        <version>3.4.4</version>
+        <configuration>
+          <from>
+            <image>eclipse-temurin:21-jre</image>
+          </from>
+          <to>
+            <image>${jib.image}</image>
+          </to>
+          <container>
+            <mainClass>world.didone.identity.DidOneIdentityApplication</mainClass>
+            <ports>
+              <port>8080</port>
+            </ports>
+            <environment>
+              <PORT>8080</PORT>
+            </environment>
+            <creationTime>USE_CURRENT_TIMESTAMP</creationTime>
+          </container>
+        </configuration>
       </plugin>
     </plugins>
   </build>
