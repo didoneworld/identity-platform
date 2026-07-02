@@ -6,6 +6,10 @@ import com.sun.net.httpserver.HttpServer;
 import world.didone.identity.didcore.DIDCore;
 import world.didone.identity.didcore.DIDCoreLifecycleState;
 import world.didone.identity.lifecycle.AgentLifecycleState;
+import world.didone.identity.oidc.JsonWebKey;
+import world.didone.identity.oidc.OidcProviderMetadata;
+import world.didone.identity.oidc.TokenResponse;
+import world.didone.identity.oidc.UserInfoClaims;
 import world.didone.identity.recovery.RecoveryState;
 
 import java.io.IOException;
@@ -18,15 +22,31 @@ import java.util.Map;
 
 public final class DidOneIdentityApplication {
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final String ISSUER = System.getenv().getOrDefault("DIDONE_ISSUER", "http://localhost:8080");
 
     public static void main(String[] args) throws IOException {
         int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "8080"));
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
+
         server.createContext("/health", exchange -> respond(exchange, 200, Map.of(
                 "status", "ok",
                 "service", "didone-identity-platform",
                 "time", Instant.now().toString()
         )));
+
+        server.createContext("/.well-known/openid-configuration", exchange -> respond(exchange, 200, providerMetadata()));
+        server.createContext("/.well-known/jwks.json", exchange -> respond(exchange, 200, Map.of("keys", List.of(sampleSigningKey()))));
+        server.createContext("/oauth2/v1/userinfo", exchange -> respond(exchange, 200, sampleUserInfo()));
+        server.createContext("/oauth2/v1/authorize", exchange -> respond(exchange, 501, Map.of(
+                "error", "not_implemented",
+                "message", "Authorization endpoint is reserved. Human login and consent ceremony will be implemented next."
+        )));
+        server.createContext("/oauth2/v1/token", exchange -> respond(exchange, 501, tokenPlaceholder()));
+        server.createContext("/connect/register", exchange -> respond(exchange, 501, Map.of(
+                "error", "not_implemented",
+                "message", "Dynamic client registration model exists. Persistence and policy gates are next."
+        )));
+
         server.createContext("/v1/didcore", exchange -> respond(exchange, 200, sampleDidCore()));
         server.createContext("/v1/lifecycle/states", exchange -> respond(exchange, 200, Map.of(
                 "didcore", List.of(DIDCoreLifecycleState.values()),
@@ -36,10 +56,80 @@ public final class DidOneIdentityApplication {
         server.createContext("/", exchange -> respond(exchange, 200, Map.of(
                 "name", "DID One Identity Platform",
                 "law", "Identity first. Proof always. Recover or retire.",
-                "endpoints", List.of("/health", "/v1/didcore", "/v1/lifecycle/states")
+                "endpoints", List.of(
+                        "/health",
+                        "/.well-known/openid-configuration",
+                        "/.well-known/jwks.json",
+                        "/oauth2/v1/userinfo",
+                        "/oauth2/v1/authorize",
+                        "/oauth2/v1/token",
+                        "/connect/register",
+                        "/v1/didcore",
+                        "/v1/lifecycle/states"
+                )
         )));
         server.start();
         System.out.printf("DID One Identity Platform running on port %d%n", port);
+    }
+
+    private static OidcProviderMetadata providerMetadata() {
+        return new OidcProviderMetadata(
+                ISSUER,
+                ISSUER + "/oauth2/v1/authorize",
+                ISSUER + "/oauth2/v1/token",
+                ISSUER + "/oauth2/v1/userinfo",
+                ISSUER + "/.well-known/jwks.json",
+                ISSUER + "/connect/register",
+                List.of("openid", "profile", "email", "did", "wallet", "vc"),
+                List.of("code"),
+                List.of("authorization_code", "refresh_token", "client_credentials"),
+                List.of("public", "pairwise", "did"),
+                List.of("RS256"),
+                List.of("client_secret_basic", "client_secret_post", "private_key_jwt", "none"),
+                List.of("sub", "name", "preferred_username", "email", "email_verified", "profile", "picture", "locale", "zoneinfo", "did", "lifecycle_state", "trust_score")
+        );
+    }
+
+    private static JsonWebKey sampleSigningKey() {
+        return new JsonWebKey(
+                "didone-dev-key-1",
+                "RSA",
+                "sig",
+                "RS256",
+                "pending-modulus",
+                "AQAB",
+                null,
+                null,
+                null
+        );
+    }
+
+    private static UserInfoClaims sampleUserInfo() {
+        return new UserInfoClaims(
+                "pairwise-subject-root",
+                "did:didone:identity:root",
+                "DID One Root",
+                "didone-root",
+                "root@didone.world",
+                true,
+                ISSUER + "/v1/didcore",
+                null,
+                "en",
+                "UTC",
+                DIDCoreLifecycleState.ACTIVE.code(),
+                1000
+        );
+    }
+
+    private static TokenResponse tokenPlaceholder() {
+        return new TokenResponse(
+                null,
+                "Bearer",
+                0,
+                null,
+                null,
+                "openid profile email did"
+        );
     }
 
     private static DIDCore sampleDidCore() {
