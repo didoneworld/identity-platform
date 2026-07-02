@@ -3,14 +3,17 @@ package world.didone.identity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import world.didone.identity.audit.AuditEvent;
+import world.didone.identity.audit.AuditSink;
+import world.didone.identity.audit.InMemoryAuditSink;
 import world.didone.identity.didcore.DIDCore;
 import world.didone.identity.didcore.DIDCoreLifecycleState;
+import world.didone.identity.keys.InMemorySigningKeyStore;
+import world.didone.identity.keys.SigningKeyStore;
 import world.didone.identity.lifecycle.AgentLifecycleState;
-import world.didone.identity.oidc.EphemeralRsaKeyProvider;
 import world.didone.identity.oidc.JsonWebKey;
 import world.didone.identity.oidc.OidcProviderMetadata;
 import world.didone.identity.oidc.OidcTokenService;
-import world.didone.identity.oidc.RsaKeyMaterial;
 import world.didone.identity.oidc.RsaTokenSigner;
 import world.didone.identity.oidc.TokenResponse;
 import world.didone.identity.oidc.UserInfoClaims;
@@ -25,13 +28,16 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 public final class DidOneIdentityApplication {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String ISSUER = System.getenv().getOrDefault("DIDONE_ISSUER", "http://localhost:8080");
-    private static final RsaKeyMaterial SIGNING_KEY = EphemeralRsaKeyProvider.create("didone-rs256-dev-key-1");
-    private static final OidcTokenService TOKEN_SERVICE = new OidcTokenService(ISSUER, new RsaTokenSigner(SIGNING_KEY));
+    private static final String ROOT_DID = "did:didone:identity:root";
+    private static final SigningKeyStore KEY_STORE = new InMemorySigningKeyStore(ROOT_DID, "didone-rs256-dev-key-1");
+    private static final AuditSink AUDIT = new InMemoryAuditSink();
+    private static final OidcTokenService TOKEN_SERVICE = new OidcTokenService(ISSUER, new RsaTokenSigner(KEY_STORE.activeSigningKey()));
 
     public static void main(String[] args) throws IOException {
         int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "8080"));
@@ -44,8 +50,14 @@ public final class DidOneIdentityApplication {
         )));
 
         server.createContext("/.well-known/openid-configuration", exchange -> respond(exchange, 200, providerMetadata()));
-        server.createContext("/.well-known/jwks.json", exchange -> respond(exchange, 200, Map.of("keys", List.of(sampleSigningKey()))));
+        server.createContext("/.well-known/jwks.json", exchange -> respond(exchange, 200, Map.of("keys", KEY_STORE.publicKeys())));
+        server.createContext("/oauth2/v1/keys", exchange -> respond(exchange, 200, Map.of(
+                "active", KEY_STORE.activeKeyRecord().orElse(null),
+                "rotation", KEY_STORE.rotationPlan(),
+                "public_keys", KEY_STORE.publicKeys()
+        )));
         server.createContext("/oauth2/v1/userinfo", exchange -> respond(exchange, 200, sampleUserInfo()));
+        server.createContext("/oauth2/v1/audit", exchange -> respond(exchange, 200, Map.of("events", AUDIT.recentEvents())));
         server.createContext("/oauth2/v1/authorize", exchange -> respond(exchange, 501, Map.of(
                 "error", "not_implemented",
                 "message", "Authorization endpoint is reserved. Human login and consent ceremony will be implemented next."
@@ -69,6 +81,8 @@ public final class DidOneIdentityApplication {
                         "/health",
                         "/.well-known/openid-configuration",
                         "/.well-known/jwks.json",
+                        "/oauth2/v1/keys",
+                        "/oauth2/v1/audit",
                         "/oauth2/v1/userinfo",
                         "/oauth2/v1/authorize",
                         "/oauth2/v1/token",
@@ -78,6 +92,16 @@ public final class DidOneIdentityApplication {
                 )
         )));
         server.start();
+        AUDIT.append(new AuditEvent(
+                UUID.randomUUID().toString(),
+                "RUNTIME_STARTED",
+                ROOT_DID,
+                ROOT_DID,
+                "didone-identity-platform",
+                "success",
+                Instant.now(),
+                Map.of("issuer", ISSUER, "active_key", KEY_STORE.activeSigningKey().keyId())
+        ));
         System.out.printf("DID One Identity Platform running on port %d%n", port);
     }
 
@@ -91,14 +115,34 @@ public final class DidOneIdentityApplication {
         String grantType = form.getOrDefault("grant_type", "client_credentials");
         String clientId = form.getOrDefault("client_id", "didone-dev-client");
         String scope = form.getOrDefault("scope", "openid profile email did");
-        String subjectDid = form.getOrDefault("did", "did:didone:identity:root");
+        String subjectDid = form.getOrDefault("did", ROOT_DID);
 
         if (!List.of("client_credentials", "authorization_code", "refresh_token").contains(grantType)) {
+            AUDIT.append(new AuditEvent(
+                    UUID.randomUUID().toString(),
+                    "TOKEN_ISSUE_DENIED",
+                    ROOT_DID,
+                    subjectDid,
+                    "/oauth2/v1/token",
+                    "unsupported_grant_type",
+                    Instant.now(),
+                    Map.of("grant_type", grantType, "client_id", clientId)
+            ));
             respond(exchange, 400, Map.of("error", "unsupported_grant_type", "grant_type", grantType));
             return;
         }
 
         TokenResponse tokenResponse = TOKEN_SERVICE.issueDevelopmentTokens(clientId, subjectDid, scope);
+        AUDIT.append(new AuditEvent(
+                UUID.randomUUID().toString(),
+                "TOKEN_ISSUED",
+                ROOT_DID,
+                subjectDid,
+                "/oauth2/v1/token",
+                "success",
+                Instant.now(),
+                Map.of("grant_type", grantType, "client_id", clientId, "scope", scope, "key_id", KEY_STORE.activeSigningKey().keyId())
+        ));
         respond(exchange, 200, tokenResponse);
     }
 
@@ -140,13 +184,13 @@ public final class DidOneIdentityApplication {
     }
 
     private static JsonWebKey sampleSigningKey() {
-        return SIGNING_KEY.toPublicJwk();
+        return KEY_STORE.publicKeys().getFirst();
     }
 
     private static UserInfoClaims sampleUserInfo() {
         return new UserInfoClaims(
                 "pairwise-subject-root",
-                "did:didone:identity:root",
+                ROOT_DID,
                 "DID One Root",
                 "didone-root",
                 "root@didone.world",
@@ -162,7 +206,7 @@ public final class DidOneIdentityApplication {
 
     private static DIDCore sampleDidCore() {
         return new DIDCore(
-                "did:didone:identity:root",
+                ROOT_DID,
                 "didone",
                 "world",
                 "did:didone:controller:root",
