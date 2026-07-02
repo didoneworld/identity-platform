@@ -6,10 +6,12 @@ import com.sun.net.httpserver.HttpServer;
 import world.didone.identity.didcore.DIDCore;
 import world.didone.identity.didcore.DIDCoreLifecycleState;
 import world.didone.identity.lifecycle.AgentLifecycleState;
-import world.didone.identity.oidc.DevTokenSigner;
+import world.didone.identity.oidc.EphemeralRsaKeyProvider;
 import world.didone.identity.oidc.JsonWebKey;
 import world.didone.identity.oidc.OidcProviderMetadata;
 import world.didone.identity.oidc.OidcTokenService;
+import world.didone.identity.oidc.RsaKeyMaterial;
+import world.didone.identity.oidc.RsaTokenSigner;
 import world.didone.identity.oidc.TokenResponse;
 import world.didone.identity.oidc.UserInfoClaims;
 import world.didone.identity.recovery.RecoveryState;
@@ -28,7 +30,8 @@ import java.util.stream.Collectors;
 public final class DidOneIdentityApplication {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String ISSUER = System.getenv().getOrDefault("DIDONE_ISSUER", "http://localhost:8080");
-    private static final OidcTokenService TOKEN_SERVICE = new OidcTokenService(ISSUER, new DevTokenSigner("didone-dev-key-1"));
+    private static final RsaKeyMaterial SIGNING_KEY = EphemeralRsaKeyProvider.create("didone-rs256-dev-key-1");
+    private static final OidcTokenService TOKEN_SERVICE = new OidcTokenService(ISSUER, new RsaTokenSigner(SIGNING_KEY));
 
     public static void main(String[] args) throws IOException {
         int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "8080"));
@@ -130,24 +133,14 @@ public final class DidOneIdentityApplication {
                 List.of("code"),
                 List.of("authorization_code", "refresh_token", "client_credentials"),
                 List.of("public", "pairwise", "did"),
-                List.of("none", "RS256"),
+                List.of("RS256"),
                 List.of("client_secret_basic", "client_secret_post", "private_key_jwt", "none"),
                 List.of("sub", "name", "preferred_username", "email", "email_verified", "profile", "picture", "locale", "zoneinfo", "did", "lifecycle_state", "trust_score")
         );
     }
 
     private static JsonWebKey sampleSigningKey() {
-        return new JsonWebKey(
-                "didone-dev-key-1",
-                "oct",
-                "sig",
-                "none",
-                null,
-                null,
-                null,
-                null,
-                null
-        );
+        return SIGNING_KEY.toPublicJwk();
     }
 
     private static UserInfoClaims sampleUserInfo() {
