@@ -32,6 +32,28 @@ jobs:
       - name: Build Java Unifile
         run: mvn -B clean package
 
+      - name: Smoke test runtime
+        run: |
+          java -jar target/identity-platform-0.1.0.jar > runtime.log 2>&1 &
+          echo $! > runtime.pid
+          sleep 8
+          curl --fail http://localhost:8080/health
+          curl --fail http://localhost:8080/.well-known/openid-configuration
+          curl --fail http://localhost:8080/.well-known/jwks.json
+          curl --fail http://localhost:8080/v1/identity
+          curl --fail http://localhost:8080/v1/identity/users
+          curl --fail -X POST http://localhost:8080/oauth2/v1/token \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            -d 'grant_type=client_credentials&client_id=didone-dev-client&scope=openid%20profile%20email%20did'
+          kill $(cat runtime.pid)
+
+      - name: Upload runtime log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: didone-identity-runtime-log
+          path: runtime.log
+
       - name: Upload shaded JAR
         uses: actions/upload-artifact@v4
         with:
